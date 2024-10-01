@@ -1,12 +1,12 @@
 # electric-demo-cloudflare-sqlite
 
-Demo showing how to sync into Cloudflare's new Durable Object SQLite
+Demo showing how to sync into [Cloudflare's new Durable Object SQLite](https://blog.cloudflare.com/sqlite-in-durable-objects/).
 
-Edge compute is great but compute with slow data reads isn't great.
+Edge compute is great but what isn't great is compute with slow data reads.
 
 Sync is the solution.
 
-Electric gives Durable Objects a high-performance flexible sync from Postgres into the the new DO SQLite.
+[Electric](https://electric-sql.com/) provides Durable Objects with a high-performance, flexible sync engine from Postgres into the the new DO SQLite.
 
 The DO makes an incremental sync call for the latest changes on each call (can take < 20ms when responses cached in the CDN) and then query the local db (will support up to 10 GBs).
 
