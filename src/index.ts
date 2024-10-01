@@ -159,7 +159,7 @@ export default {
     const pathname = new URL(request.url).pathname
     const matches = fn(pathname)
 
-    if (!matches) {
+    if (!matches?.params?.id) {
       return new Response(`no org`, { status: 400 })
     }
 
