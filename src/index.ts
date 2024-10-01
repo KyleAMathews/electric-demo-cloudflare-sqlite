@@ -1,33 +1,17 @@
 import { DurableObject } from "cloudflare:workers"
-const { match } = require(`path-to-regexp`)
+import { match } from "path-to-regexp"
 import {
   ShapeStream,
   Shape,
   isChangeMessage,
-  ControlMessage,
   Message,
   Offset,
 } from "@electric-sql/client"
 
-/**
- * Welcome to Cloudflare Workers! This is your first Durable Objects application.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your Durable Object in action
- * - Run `npm run deploy` to publish your application
- *
- * Bind resources to your worker in `wrangler.toml`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/durable-objects
- */
-
-/** A Durable Object's behavior is defined in an exported Javascript class */
 export class ElectricSqliteDemo extends DurableObject {
   sql: SqlStorage
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
-    console.log(`new durable object`, ctx, env)
     this.sql = ctx.storage.sql
 
     this.sql.exec(`CREATE TABLE IF NOT EXISTS organizations (
@@ -53,29 +37,26 @@ export class ElectricSqliteDemo extends DurableObject {
 );`)
   }
 
-  /**
-   * The Durable Object exposes an RPC method sayHello which will be invoked when when a Durable
-   *  Object instance receives a request from a Worker via the same method invocation on the stub
-   *
-   * @param name - The name provided to a Durable Object instance from a Worker
-   * @returns The greeting to be sent back to the Worker
+  /*
+   * Sync any updates from Electric & then query for org/user info and return
    */
   async getOrgInfo(id: string): Promise<string> {
     const ORG_SHAPE = `org_shape`
     const USER_SHAPE = `user_shape`
+
     // Get shape info
     const shapeMetadata = this.sql
-      .exec(`SELECT * FROM shape_sync_metadata where shape_id IS NOT NULL;`)
+      .exec(`SELECT * FROM shape_sync_metadata where shape_id;`)
       .toArray()
-    console.log({ shapeMetadata })
+    // console.log({ shapeMetadata })
 
     const userStreamMetadata =
       shapeMetadata.find((s) => s.shape_name === USER_SHAPE) || {}
     const orgStreamMetadata =
       shapeMetadata.find((s) => s.shape_name === ORG_SHAPE) || {}
 
-    let orgLastOffset = orgStreamMetadata?.offset as Offset | undefined
-    let userLastOffset = userStreamMetadata?.offset as Offset | undefined
+    let orgLastOffset = (orgStreamMetadata?.offset || -1) as Offset
+    let userLastOffset = (userStreamMetadata?.offset || -1) as Offset
     let orgShapeId = orgStreamMetadata?.shape_id as string | undefined
     let userShapeId = userStreamMetadata?.shape_id as string | undefined
 
@@ -88,19 +69,10 @@ export class ElectricSqliteDemo extends DurableObject {
     })
 
     orgStream.subscribe(async (messages: Message[]) => {
-      // console.log(`org messages`, messages)
       for (const message of messages) {
         if (isChangeMessage(message)) {
           orgLastOffset = message.offset
           if (message.headers.operation === `insert`) {
-            console.log({ message })
-            console.log([
-              message.value.id,
-              message.value.name,
-              message.value.domain,
-              message.value.description,
-              message.value.plan,
-            ])
             this.sql.exec(
               `
   INSERT INTO organizations (id, name, domain, description, plan)
@@ -122,19 +94,10 @@ export class ElectricSqliteDemo extends DurableObject {
     })
 
     userStream.subscribe(async (messages) => {
-      // console.log(`users messages`, messages)
       for (const message of messages) {
         if (isChangeMessage(message)) {
           userLastOffset = message.offset
           if (message.headers.operation === `insert`) {
-            console.log({ message })
-            console.log([
-              message.value.id,
-              message.value.organization_id,
-              message.value.name,
-              message.value.email,
-              message.value.role,
-            ])
             this.sql.exec(
               `
   INSERT INTO users (id, organization_id, name, email, role)
@@ -152,7 +115,6 @@ export class ElectricSqliteDemo extends DurableObject {
 
     const startTime = Date.now()
     await Promise.all([userShape.value, orgShape.value])
-    console.timeEnd(`sync`)
     const endTime = Date.now()
     const elapsedTime = endTime - startTime
     console.log(`Syncing time: ${elapsedTime} ms`)
@@ -174,18 +136,11 @@ ON CONFLICT(shape_name) DO UPDATE SET
     offset = excluded.offset;
 `)
 
-    console.log(`shapeids`, userStream.shapeId, orgStream.shapeId)
-
     // Get org and users.
     const org = this.sql.exec(`SELECT * from organizations;`).toArray()
     const users = this.sql.exec(`SELECT * from users;`).toArray()
 
     return JSON.stringify({ org, users }, null, 4)
-    // const firstRow = this.sql
-    //   .exec(`SELECT * FROM artist ORDER BY artistname DESC;`)
-    //   .toArray()[0]
-    //
-    // return JSON.stringify(firstRow, null, 4)
   }
 }
 
@@ -208,18 +163,9 @@ export default {
       return new Response(`no org`, { status: 400 })
     }
 
-    console.log({ pathname, matches })
-
-    // // We will create a `DurableObjectId` using the pathname from the Worker request
-    // // This id refers to a unique instance of our 'ElectricSqliteDemo' class above
     const id: DurableObjectId = env.ELECTRIC_SQLITE_DEMO.idFromName(
       matches.params.id
     )
-    //
-    // console.log(`durable object id`, id)
-
-    // This stub creates a communication channel with the Durable Object instance
-    // The Durable Object constructor will be invoked upon the first call for a given id
     const stub = env.ELECTRIC_SQLITE_DEMO.get(id)
 
     const greeting = await stub.getOrgInfo(matches.params.id)
